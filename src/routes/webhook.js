@@ -188,8 +188,8 @@ router.post("/", async (req, res) => {
       console.log("Data keys:", body.data ? Object.keys(body.data) : []);
       console.log("Has messages:", !!(body.data && body.data.messages));
       console.log(
-        "Messages length:",
-        body.data && body.data.messages ? body.data.messages.length : 0
+        "Messages type:",
+        body.data && body.data.messages ? typeof body.data.messages : "N/A"
       );
       console.log(
         "Messages content:",
@@ -205,28 +205,48 @@ router.post("/", async (req, res) => {
           body.event === "messages.received") &&
         body.data &&
         body.data.messages &&
-        body.data.messages.length > 0
+        body.data.messages.key &&
+        body.data.messages.message
       ) {
-        // Extract from WaSender messages array format
-        const messageData = body.data.messages[0];
-        from =
-          messageData.from ||
-          messageData.sender ||
-          messageData.phone ||
-          messageData.contact;
-        text =
-          messageData.text ||
-          messageData.body ||
-          messageData.message ||
-          messageData.content ||
-          "";
+        // Extract from WaSender messages object format
+        const messageData = body.data.messages;
+        from = messageData.key.remoteJid;
+
+        // Extract text from different message types
+        let text = "";
+        if (messageData.message.conversation) {
+          text = messageData.message.conversation;
+        } else if (
+          messageData.message.extendedTextMessage &&
+          messageData.message.extendedTextMessage.text
+        ) {
+          text = messageData.message.extendedTextMessage.text;
+        } else if (messageData.message.text) {
+          text = messageData.message.text;
+        }
 
         logger.info("Message extracted", {
           from,
           text: text.substring(0, 50) + (text.length > 50 ? "..." : ""),
           event: body.event,
-          messageKeys: Object.keys(messageData),
+          messageType: Object.keys(messageData.message)[0],
         });
+
+        // Only process messages that match our commands
+        const trimmedText = text.trim().toLowerCase();
+        const isCommand =
+          trimmedText === "connect" ||
+          trimmedText === "agenda" ||
+          trimmedText === "help" ||
+          trimmedText === "whoami" ||
+          trimmedText.startsWith("set tz ") ||
+          trimmedText === "hi" ||
+          trimmedText === "hello";
+
+        if (!isCommand) {
+          logger.info("Ignoring non-command message", { text: trimmedText });
+          return res.status(200).send("OK");
+        }
       } else {
         // Acknowledge other message events but don't process them
         logger.info("Event acknowledged", { event: body.event });
