@@ -162,11 +162,10 @@ router.post("/", async (req, res) => {
     }
 
     // Process message if we found one
-    if (message && from && text) {
+    if (from && text) {
       logger.info("Message received", {
         from,
         text: text.substring(0, 50) + (text.length > 50 ? "..." : ""),
-        messageType: message.type,
       });
 
       // User management
