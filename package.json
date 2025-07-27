@@ -15,7 +15,8 @@
     "redis": "^4.6.10",
     "node-cron": "^3.0.3",
     "date-fns": "^2.30.0",
-    "luxon": "^3.4.4"
+    "luxon": "^3.4.4",
+    "googleapis": "^128.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

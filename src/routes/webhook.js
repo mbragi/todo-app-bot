@@ -3,6 +3,8 @@ const router = express.Router();
 const config = require("../lib/config");
 const logger = require("../lib/logger");
 const { createWhatsAppClient } = require("../whatsapp/client");
+const { addUserIfNew, getSettings, setSettings } = require("../users/service");
+const { listEvents } = require("../calendar/googleCalendar");
 
 /**
  * Webhook verification for WhatsApp Cloud API
@@ -67,15 +69,66 @@ router.post("/", async (req, res) => {
           messageType: message.type,
         });
 
-        // Echo functionality for now
-        if (text.toLowerCase() === "hi" || text.toLowerCase() === "hello") {
+        // User management
+        const uid = from; // E.164 from the provider payload
+        await addUserIfNew(uid);
+
+        const msg = (text || "").trim();
+        const lower = msg.toLowerCase();
+
+        // Echo functionality
+        if (lower === "hi" || lower === "hello") {
           const whatsappClient = createWhatsAppClient();
           await whatsappClient.sendText(
-            from,
+            uid,
             "Hello! WhatsApp assistant online."
           );
-
-          logger.info("Echo response sent", { to: from });
+          logger.info("Echo response sent", { to: uid });
+        }
+        // Agenda command
+        else if (lower === "agenda") {
+          const whatsappClient = createWhatsAppClient();
+          try {
+            const events = await listEvents(uid, new Date());
+            if (!events.length) {
+              await whatsappClient.sendText(uid, "No events today 👍");
+            } else {
+              const lines = events.map((e) => {
+                const hhmm = (e.start || "").substring(11, 16) || "All-day";
+                return `• ${hhmm} — ${e.summary}`;
+              });
+              await whatsappClient.sendText(uid, `Today:\n${lines.join("\n")}`);
+            }
+            logger.info("Agenda sent", { to: uid, eventCount: events.length });
+          } catch (error) {
+            logger.error("Failed to fetch agenda", error, { to: uid });
+            await whatsappClient.sendText(
+              uid,
+              "Sorry, couldn't fetch your calendar. Please check your Google Calendar settings."
+            );
+          }
+        }
+        // Settings commands
+        else if (lower.startsWith("set tz ")) {
+          const whatsappClient = createWhatsAppClient();
+          const tz = msg.slice(7).trim();
+          await setSettings(uid, { tz });
+          const s = await getSettings(uid);
+          await whatsappClient.sendText(uid, `Timezone updated → ${s.tz}`);
+          logger.info("Timezone updated", { to: uid, tz: s.tz });
+        } else if (lower.startsWith("set calendar ")) {
+          const whatsappClient = createWhatsAppClient();
+          const calendarId = msg.slice("set calendar ".length).trim();
+          await setSettings(uid, { calendarId });
+          const s = await getSettings(uid);
+          await whatsappClient.sendText(
+            uid,
+            `Calendar ID updated → ${s.calendarId}`
+          );
+          logger.info("Calendar ID updated", {
+            to: uid,
+            calendarId: s.calendarId,
+          });
         }
       }
     }
