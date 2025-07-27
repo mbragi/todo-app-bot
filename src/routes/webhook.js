@@ -115,16 +115,30 @@ router.post("/", async (req, res) => {
 
         // Extract text from different message types
         let text = "";
+        console.log("=== TEXT EXTRACTION DEBUG ===");
+        console.log("Message keys:", Object.keys(messageData.message));
+        console.log(
+          "Message content:",
+          JSON.stringify(messageData.message, null, 2)
+        );
+
         if (messageData.message.conversation) {
           text = messageData.message.conversation;
+          console.log("Extracted from conversation:", text);
         } else if (
           messageData.message.extendedTextMessage &&
           messageData.message.extendedTextMessage.text
         ) {
           text = messageData.message.extendedTextMessage.text;
+          console.log("Extracted from extendedTextMessage:", text);
         } else if (messageData.message.text) {
           text = messageData.message.text;
+          console.log("Extracted from text:", text);
+        } else {
+          console.log("No text found in message");
         }
+        console.log("Final text:", text);
+        console.log("==============================");
 
         logger.info("Message extracted", {
           from,
