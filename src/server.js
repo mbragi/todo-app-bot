@@ -28,6 +28,7 @@ function createServer() {
   app.use("/health", require("./routes/health"));
   app.use("/webhook", require("./routes/webhook"));
   app.use("/send", require("./routes/send"));
+  app.use("/oauth/google", require("./routes/googleOAuth"));
 
   // 404 handler
   app.use((req, res) => {

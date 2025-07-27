@@ -3,6 +3,12 @@ const dotenv = require("dotenv");
 // Load environment variables
 dotenv.config();
 
+// Simple logger for config validation (before main logger is available)
+const simpleLogger = {
+  warn: (msg) => console.warn(`[CONFIG] ${msg}`),
+  error: (msg) => console.error(`[CONFIG] ${msg}`),
+};
+
 /**
  * Configuration object with environment validation
  * Fails fast if required environment variables are missing
@@ -29,11 +35,14 @@ const config = {
   google: {
     credentialsJson: process.env.GOOGLE_CREDENTIALS_JSON,
     calendarId: process.env.GOOGLE_CALENDAR_ID,
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    redirectUri: process.env.GOOGLE_REDIRECT_URI,
   },
 
-  // Redis
-  redis: {
-    url: process.env.REDIS_URL || "redis://localhost:6379/0",
+  // Storage
+  store: {
+    backend: process.env.STORE_BACKEND || "memory",
   },
 
   // Cron Schedules
@@ -77,6 +86,18 @@ function validateConfig() {
   } else if (config.messagingProvider === "wasender") {
     if (!config.wasender.apiKey)
       errors.push("WASENDER_API_KEY is required for wasender provider");
+  }
+
+  // Validate Google OAuth requirements (only if using OAuth)
+  if (
+    config.store.backend === "memory" &&
+    (!config.google.clientId ||
+      !config.google.clientSecret ||
+      !config.google.redirectUri)
+  ) {
+    simpleLogger.warn(
+      "Google OAuth credentials not configured - OAuth features will be disabled"
+    );
   }
 
   if (errors.length > 0) {

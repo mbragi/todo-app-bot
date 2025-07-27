@@ -1,7 +1,6 @@
 const createServer = require("./server");
 const config = require("./lib/config");
 const logger = require("./lib/logger");
-const { closeRedisClient } = require("./lib/redisClient");
 
 /**
  * Start the WhatsApp Productivity Assistant server
@@ -26,15 +25,8 @@ async function startServer() {
 
       server.close(async () => {
         logger.info("HTTP server closed");
-
-        try {
-          await closeRedisClient();
-          logger.info("Graceful shutdown completed");
-          process.exit(0);
-        } catch (error) {
-          logger.error("Error during shutdown", error);
-          process.exit(1);
-        }
+        logger.info("Graceful shutdown completed");
+        process.exit(0);
       });
     };
 

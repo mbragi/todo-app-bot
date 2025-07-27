@@ -35,6 +35,16 @@ class WaSenderProvider {
         payload,
       });
 
+      // Mock response for testing (when using test API key)
+      if (this.apiKey === "test_api_key_here") {
+        logger.info("Mock message sent (test mode)", {
+          provider: "wasender",
+          to: formattedPhone,
+          messageLength: text.length,
+        });
+        return { success: true, message: "Mock message sent" };
+      }
+
       const response = await axios.post(
         `${this.baseUrl}/send-message`,
         payload,

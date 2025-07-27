@@ -1,23 +1,25 @@
 const { google } = require("googleapis");
-const { getSettings } = require("../users/service");
+const { getSettings, hasGoogleCalendarLinked } = require("../users/service");
+const { getUserOAuth2Client, refreshAccessToken } = require("./googleOAuth");
 
-// Service Account auth (MVP). For OAuth per-user later, read a user refresh_token
-// from user:{uid}:gcal and construct an OAuth2 client instead.
-function buildAuth() {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return new google.auth.GoogleAuth({
-      scopes: ["https://www.googleapis.com/auth/calendar"],
-    });
+/**
+ * Get authentication for a specific user
+ * @param {string} uid - User ID
+ * @returns {google.auth.OAuth2} - OAuth2 client
+ */
+async function getUserAuth(uid) {
+  // Check if user has Google Calendar linked
+  if (!(await hasGoogleCalendarLinked(uid))) {
+    throw new Error("User not connected to Google Calendar");
   }
-  if (process.env.GOOGLE_CREDENTIALS_JSON) {
-    const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-    return new google.auth.JWT(creds.client_email, null, creds.private_key, [
-      "https://www.googleapis.com/auth/calendar",
-    ]);
+
+  try {
+    return await getUserOAuth2Client(uid);
+  } catch (error) {
+    // Try to refresh the token
+    await refreshAccessToken(uid);
+    return await getUserOAuth2Client(uid);
   }
-  throw new Error(
-    "No Google credentials. Set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_CREDENTIALS_JSON."
-  );
 }
 
 function getCalendarClient(auth) {
@@ -31,7 +33,7 @@ function getCalendarClient(auth) {
  */
 async function listEvents(uid, date) {
   const { tz, calendarId } = await getSettings(uid);
-  const auth = await buildAuth();
+  const auth = await getUserAuth(uid);
   const calendar = getCalendarClient(auth);
 
   const start = new Date(date);

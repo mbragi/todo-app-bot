@@ -3,8 +3,17 @@ const router = express.Router();
 const config = require("../lib/config");
 const logger = require("../lib/logger");
 const { createWhatsAppClient } = require("../whatsapp/client");
-const { addUserIfNew, getSettings, setSettings } = require("../users/service");
+const {
+  addUserIfNew,
+  getSettings,
+  setSettings,
+  getUserProfile,
+  hasCompletedOnboarding,
+  hasGoogleCalendarLinked,
+} = require("../users/service");
 const { listEvents } = require("../calendar/googleCalendar");
+const { tryHandle, startOnboarding } = require("../users/onboarding");
+const { getAuthUrl } = require("../calendar/googleOAuth");
 
 /**
  * Webhook verification for WhatsApp Cloud API
@@ -71,68 +80,145 @@ router.post("/", async (req, res) => {
 
         // User management
         const uid = from; // E.164 from the provider payload
-        await addUserIfNew(uid);
+        const isNewUser = await addUserIfNew(uid);
 
         const msg = (text || "").trim();
         const lower = msg.toLowerCase();
 
-        // Echo functionality
+        const whatsappClient = createWhatsAppClient();
+
+        // Handle new user onboarding
+        if (isNewUser) {
+          const onboardingResponse = startOnboarding(uid);
+          await whatsappClient.sendText(uid, onboardingResponse.message);
+          logger.info("Started onboarding for new user", { uid });
+          return;
+        }
+
+        // Check if user has completed onboarding
+        const hasOnboarded = await hasCompletedOnboarding(uid);
+        if (!hasOnboarded) {
+          // Handle onboarding flow
+          const onboardingResponse = await tryHandle(uid, msg);
+          if (onboardingResponse) {
+            await whatsappClient.sendText(uid, onboardingResponse.message);
+            return;
+          }
+        }
+
+        // Get user profile for personalized responses
+        const profile = await getUserProfile(uid);
+
+        // Command handling
         if (lower === "hi" || lower === "hello") {
-          const whatsappClient = createWhatsAppClient();
-          await whatsappClient.sendText(
-            uid,
-            "Hello! WhatsApp assistant online."
-          );
-          logger.info("Echo response sent", { to: uid });
+          const greeting = profile ? `Hello ${profile.name}! 👋` : "Hello! 👋";
+          await whatsappClient.sendText(uid, greeting);
+          logger.info("Greeting sent", { to: uid });
+        }
+        // Connect command
+        else if (lower === "connect") {
+          const isLinked = await hasGoogleCalendarLinked(uid);
+          if (isLinked) {
+            await whatsappClient.sendText(
+              uid,
+              "✅ Your Google Calendar is already connected!"
+            );
+          } else {
+            const authUrl = getAuthUrl(uid);
+            await whatsappClient.sendText(
+              uid,
+              `🔗 Connect your Google Calendar:\n\n${authUrl}\n\nClick the link above to authorize access to your calendar.`
+            );
+            logger.info("OAuth URL sent", { uid });
+          }
         }
         // Agenda command
         else if (lower === "agenda") {
-          const whatsappClient = createWhatsAppClient();
+          const isLinked = await hasGoogleCalendarLinked(uid);
+          if (!isLinked) {
+            await whatsappClient.sendText(
+              uid,
+              "📅 You're not connected to Google Calendar yet.\n\nType 'connect' to link your calendar and see your agenda."
+            );
+            return;
+          }
+
           try {
             const events = await listEvents(uid, new Date());
             if (!events.length) {
-              await whatsappClient.sendText(uid, "No events today 👍");
+              await whatsappClient.sendText(
+                uid,
+                "📅 No events scheduled for today 👍"
+              );
             } else {
               const lines = events.map((e) => {
                 const hhmm = (e.start || "").substring(11, 16) || "All-day";
                 return `• ${hhmm} — ${e.summary}`;
               });
-              await whatsappClient.sendText(uid, `Today:\n${lines.join("\n")}`);
+              await whatsappClient.sendText(
+                uid,
+                `📅 Today's agenda:\n\n${lines.join("\n")}`
+              );
             }
             logger.info("Agenda sent", { to: uid, eventCount: events.length });
           } catch (error) {
             logger.error("Failed to fetch agenda", error, { to: uid });
             await whatsappClient.sendText(
               uid,
-              "Sorry, couldn't fetch your calendar. Please check your Google Calendar settings."
+              "❌ Sorry, couldn't fetch your calendar. Please try 'connect' again if needed."
+            );
+          }
+        }
+        // Help command
+        else if (lower === "help") {
+          const helpText = `🤖 Available commands:
+
+• connect - Link your Google Calendar
+• agenda - View today's schedule
+• set tz <timezone> - Set your timezone (e.g., "set tz America/New_York")
+• whoami - Show your profile info
+• help - Show this help message
+
+Need help? Just ask!`;
+          await whatsappClient.sendText(uid, helpText);
+        }
+        // Whoami command
+        else if (lower === "whoami") {
+          if (profile) {
+            const isLinked = await hasGoogleCalendarLinked(uid);
+            const status = isLinked ? "✅ Connected" : "❌ Not connected";
+            const whoamiText = `👤 Your Profile:
+Name: ${profile.name}
+Email: ${profile.email}
+Phone: ${profile.phone || "Not provided"}
+Calendar: ${status}`;
+            await whatsappClient.sendText(uid, whoamiText);
+          } else {
+            await whatsappClient.sendText(
+              uid,
+              "❌ Profile not found. Please complete onboarding."
             );
           }
         }
         // Settings commands
         else if (lower.startsWith("set tz ")) {
-          const whatsappClient = createWhatsAppClient();
           const tz = msg.slice(7).trim();
           await setSettings(uid, { tz });
           const s = await getSettings(uid);
-          await whatsappClient.sendText(uid, `Timezone updated → ${s.tz}`);
+          await whatsappClient.sendText(uid, `⏰ Timezone updated → ${s.tz}`);
           logger.info("Timezone updated", { to: uid, tz: s.tz });
-        } else if (lower.startsWith("set calendar ")) {
-          const whatsappClient = createWhatsAppClient();
-          const calendarId = msg.slice("set calendar ".length).trim();
-          await setSettings(uid, { calendarId });
-          const s = await getSettings(uid);
+        }
+        // Default response
+        else {
           await whatsappClient.sendText(
             uid,
-            `Calendar ID updated → ${s.calendarId}`
+            "🤔 I didn't understand that. Type 'help' to see available commands."
           );
-          logger.info("Calendar ID updated", {
-            to: uid,
-            calendarId: s.calendarId,
-          });
         }
       }
     }
 
+    // Always respond with OK to webhook
     res.status(200).send("OK");
   } catch (error) {
     logger.error("Error processing webhook", error, {
