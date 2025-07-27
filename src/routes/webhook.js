@@ -162,6 +162,13 @@ router.post("/", async (req, res) => {
     }
 
     // Process message if we found one
+    console.log("=== PROCESSING DEBUG ===");
+    console.log("From:", from);
+    console.log("Text:", text);
+    console.log("Has from:", !!from);
+    console.log("Has text:", !!text);
+    console.log("=========================");
+
     if (from && text) {
       logger.info("Message received", {
         from,
