@@ -102,13 +102,20 @@ function verifyWebhookSignature(signature, rawBody, secret) {
  */
 router.post("/", async (req, res) => {
   try {
+    // Debug: Log entire request
+    console.log("=== WEBHOOK DEBUG ===");
+    console.log("Headers:", JSON.stringify(req.headers, null, 2));
+    console.log("Body:", JSON.stringify(req.body, null, 2));
+    console.log("Raw URL:", req.url);
+    console.log("Method:", req.method);
+    console.log("=====================");
+
     // Get raw body for signature verification
     const rawBody = JSON.stringify(req.body);
     const body = req.body;
 
     // Verify webhook signature using raw body
-    const signature =
-      req.headers["X-Webhook-Signature"];
+    const signature = req.headers["X-Webhook-Signature"];
     const secret =
       config.messagingProvider === "cloud"
         ? config.whatsapp.webhookSecret
@@ -175,6 +182,23 @@ router.post("/", async (req, res) => {
       logger.info("Message event", { event: body.event });
 
       // Process received messages and upserts (new messages)
+      console.log("=== MESSAGE PROCESSING DEBUG ===");
+      console.log("Event:", body.event);
+      console.log("Has data:", !!body.data);
+      console.log("Data keys:", body.data ? Object.keys(body.data) : []);
+      console.log("Has messages:", !!(body.data && body.data.messages));
+      console.log(
+        "Messages length:",
+        body.data && body.data.messages ? body.data.messages.length : 0
+      );
+      console.log(
+        "Messages content:",
+        body.data && body.data.messages
+          ? JSON.stringify(body.data.messages, null, 2)
+          : "N/A"
+      );
+      console.log("================================");
+
       if (
         (body.event === "message.received" ||
           body.event === "messages.upsert" ||
