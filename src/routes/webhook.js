@@ -1,6 +1,5 @@
 const express = require("express");
 const router = express.Router();
-const crypto = require("crypto");
 const config = require("../lib/config");
 const logger = require("../lib/logger");
 const { createWhatsAppClient } = require("../whatsapp/client");
@@ -50,55 +49,6 @@ router.get("/", (req, res) => {
 });
 
 /**
- * Verify webhook signature
- * @param {string} signature - Signature header
- * @param {string} body - Request body
- * @param {string} secret - Webhook secret
- * @returns {boolean} - true if signature is valid
- */
-function verifyWebhookSignature(signature, rawBody, secret) {
-  if (!signature || !secret) {
-    logger.warn("Missing signature or secret", {
-      hasSignature: !!signature,
-      hasSecret: !!secret,
-    });
-    return false;
-  }
-
-  try {
-    // Calculate signature from raw body
-    const expectedSignature = crypto
-      .createHmac("sha256", secret)
-      .update(rawBody)
-      .digest("hex");
-
-    // Handle different signature formats
-    let receivedSignature = signature;
-    if (signature.startsWith("sha256=")) {
-      receivedSignature = signature.replace("sha256=", "");
-    }
-
-    const match = receivedSignature === expectedSignature;
-
-    if (!match) {
-      logger.warn("Signature mismatch", {
-        received: receivedSignature.substring(0, 8) + "...",
-        expected: expectedSignature.substring(0, 8) + "...",
-      });
-    } else {
-      logger.info("Signature verified", {
-        received: receivedSignature.substring(0, 8) + "...",
-      });
-    }
-
-    return match;
-  } catch (error) {
-    logger.error("Error verifying webhook signature", error);
-    return false;
-  }
-}
-
-/**
  * Webhook endpoint for receiving messages
  * POST /webhook
  */
@@ -112,65 +62,21 @@ router.post("/", async (req, res) => {
     console.log("Method:", req.method);
     console.log("=====================");
 
-    // Get raw body for signature verification
-    const rawBody = JSON.stringify(req.body);
     const body = req.body;
-
-    // Verify webhook signature using raw body
-    const signature = req.headers["X-Webhook-Signature"];
-    const secret =
-      config.messagingProvider === "cloud"
-        ? config.whatsapp.webhookSecret
-        : config.wasender.webhookSecret;
-
-    if (secret && !verifyWebhookSignature(signature, rawBody, secret)) {
-      logger.warn("Invalid webhook signature", {
-        hasSignature: !!signature,
-        hasSecret: !!secret,
-        provider: config.messagingProvider,
-      });
-      return res.status(401).send("Unauthorized");
-    }
 
     logger.info("Webhook received", {
       event: body.event || "unknown",
       type: body.object || "direct",
-      signatureVerified: !!secret,
       hasData: !!body.data,
       dataKeys: body.data ? Object.keys(body.data) : [],
     });
 
-    // Check if this is a WhatsApp message (support multiple formats)
-    let message = null;
+    // Extract WaSender message data
     let from = null;
     let text = "";
 
-    // Format 1: WhatsApp Cloud API
-    if (body.object === "whatsapp_business_account") {
-      const entry = body.entry?.[0];
-      const changes = entry?.changes?.[0];
-      const value = changes?.value;
-
-      if (value?.messages && value.messages.length > 0) {
-        message = value.messages[0];
-        from = message.from;
-        text = message.text?.body || "";
-      }
-    }
-    // Format 2: Direct messages array (some providers)
-    else if (body.messages && body.messages.length > 0) {
-      message = body.messages[0];
-      from = message.from || message.sender || message.phone;
-      text = message.text || message.body || message.message || "";
-    }
-    // Format 3: WaSender format
-    else if (body.data && body.data.messages && body.data.messages.length > 0) {
-      message = body.data.messages[0];
-      from = message.from || message.sender;
-      text = message.text || message.body || "";
-    }
-    // Format 4: WaSender event webhooks
-    else if (
+    // Handle WaSender event webhooks
+    if (
       body.event &&
       (body.event.startsWith("message.") || body.event.startsWith("messages."))
     ) {
@@ -248,7 +154,7 @@ router.post("/", async (req, res) => {
         return res.status(200).send("OK");
       }
     }
-    // Format 5: WaSender test webhook
+    // Handle WaSender test webhook
     else if (body.event === "webhook.test") {
       logger.info("Test webhook received");
       // Don't process test webhooks as messages, just acknowledge
