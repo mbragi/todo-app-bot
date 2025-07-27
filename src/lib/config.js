@@ -23,12 +23,14 @@ const config = {
     token: process.env.WHATSAPP_TOKEN,
     phoneNumberId: process.env.PHONE_NUMBER_ID,
     verifyToken: process.env.VERIFY_TOKEN,
+    webhookSecret: process.env.WHATSAPP_WEBHOOK_SECRET,
   },
 
   // WaSender API
   wasender: {
     apiKey: process.env.WASENDER_API_KEY,
     baseUrl: process.env.WASENDER_BASE_URL || "https://wasenderapi.com/api",
+    webhookSecret: process.env.WASENDER_WEBHOOK_SECRET,
   },
 
   // Google Calendar
