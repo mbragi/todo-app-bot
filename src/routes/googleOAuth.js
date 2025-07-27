@@ -8,7 +8,8 @@ const logger = require("../lib/logger");
 
 /**
  * Start OAuth flow - redirect user to Google
- * GET /oauth/google/start?uid=...
+ * GET 
+ * 
  */
 router.get("/start", (req, res) => {
   try {

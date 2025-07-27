@@ -110,7 +110,7 @@ router.post("/", async (req, res) => {
     const signature =
       req.headers["x-hub-signature-256"] ||
       req.headers["x-wasender-signature"] ||
-      req.headers["x-webhook-signature"];
+      req.headers["X-Webhook-Signature"];
     const secret =
       config.messagingProvider === "cloud"
         ? config.whatsapp.webhookSecret
@@ -182,21 +182,28 @@ router.post("/", async (req, res) => {
           body.event === "messages.upsert" ||
           body.event === "messages.received") &&
         body.data &&
-        body.data.key &&
-        body.data.message
+        body.data.messages &&
+        body.data.messages.length > 0
       ) {
-        // Extract from WaSender format
-        from = body.data.key.remoteJid;
+        // Extract from WaSender messages array format
+        const messageData = body.data.messages[0];
+        from =
+          messageData.from ||
+          messageData.sender ||
+          messageData.phone ||
+          messageData.contact;
         text =
-          body.data.message.conversation ||
-          body.data.message.text ||
-          body.data.message.body ||
+          messageData.text ||
+          messageData.body ||
+          messageData.message ||
+          messageData.content ||
           "";
 
         logger.info("Message extracted", {
           from,
           text: text.substring(0, 50) + (text.length > 50 ? "..." : ""),
           event: body.event,
+          messageKeys: Object.keys(messageData),
         });
       } else {
         // Acknowledge other message events but don't process them
