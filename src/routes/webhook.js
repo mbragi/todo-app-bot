@@ -86,7 +86,9 @@ function verifyWebhookSignature(signature, rawBody, secret) {
         expected: expectedSignature.substring(0, 8) + "...",
       });
     } else {
-      logger.info("Signature verified");
+      logger.info("Signature verified", {
+        received: receivedSignature.substring(0, 8) + "...",
+      });
     }
 
     return match;
@@ -127,14 +129,7 @@ router.post("/", async (req, res) => {
         hasSecret: !!secret,
         provider: config.messagingProvider,
       });
-
-      // For testing, allow bypass if signature verification fails
-      // Remove this in production
-      if (process.env.NODE_ENV === "development") {
-        logger.warn("Bypassing signature verification in development mode");
-      } else {
-        return res.status(401).send("Unauthorized");
-      }
+      return res.status(401).send("Unauthorized");
     }
 
     logger.info("Webhook received", {
