@@ -64,6 +64,17 @@ class WaSenderProvider {
         responseData: response.data,
       });
 
+      if (response.status === 429) {
+        const retryAfter = response.data.retry_after || 60;
+        logger.warn("Rate limited by WaSender", {
+          provider: "wasender",
+          to: formattedPhone,
+          retryAfter,
+          message: response.data.message,
+        });
+        throw new Error(`Rate limited. Try again in ${retryAfter} seconds.`);
+      }
+
       return response.data;
     } catch (error) {
       logger.error("Failed to send message via WaSender", error, {

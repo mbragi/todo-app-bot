@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const config = require("../lib/config");
 const logger = require("../lib/logger");
+const store = require("../store");
 const { createWhatsAppClient } = require("../whatsapp/client");
 const {
   addUserIfNew,
@@ -14,6 +15,26 @@ const {
 const { listEvents } = require("../calendar/googleCalendar");
 const { tryHandle, startOnboarding } = require("../users/onboarding");
 const { getAuthUrl } = require("../calendar/googleOAuth");
+
+/**
+ * Helper function to send WhatsApp messages with rate limiting error handling
+ */
+async function sendMessageSafely(whatsappClient, uid, message) {
+  try {
+    await whatsappClient.sendText(uid, message);
+  } catch (error) {
+    if (error.message.includes("Rate limited")) {
+      logger.warn("Rate limited when sending message", {
+        uid,
+        error: error.message,
+      });
+      // Don't crash the webhook, just acknowledge
+      return false;
+    }
+    throw error;
+  }
+  return true;
+}
 
 /**
  * Webhook verification for WhatsApp Cloud API
@@ -141,45 +162,87 @@ router.post("/", async (req, res) => {
 
       const whatsappClient = createWhatsAppClient();
 
-      // Handle new user onboarding
-      if (isNewUser) {
-        const onboardingResponse = startOnboarding(uid);
-        await whatsappClient.sendText(uid, onboardingResponse.message);
-        logger.info("Started onboarding for new user", { uid });
-        return;
-      }
-
-      // Check if user has completed onboarding
+      // Check if user has completed onboarding FIRST
       const hasOnboarded = await hasCompletedOnboarding(uid);
       if (!hasOnboarded) {
-        // Handle onboarding flow
+        // Handle onboarding flow - this takes priority over all commands
         const onboardingResponse = await tryHandle(uid, msg);
         if (onboardingResponse) {
-          await whatsappClient.sendText(uid, onboardingResponse.message);
+          try {
+            await whatsappClient.sendText(uid, onboardingResponse.message);
+          } catch (error) {
+            if (error.message.includes("Rate limited")) {
+              logger.warn("Rate limited during onboarding", {
+                uid,
+                error: error.message,
+              });
+              // Don't crash the webhook, just acknowledge
+              return res.status(200).send("OK");
+            }
+            throw error;
+          }
           return;
         }
+      }
+
+      // Handle new user onboarding (only if not already in onboarding)
+      if (isNewUser) {
+        const onboardingResponse = startOnboarding(uid);
+        try {
+          await whatsappClient.sendText(uid, onboardingResponse.message);
+        } catch (error) {
+          if (error.message.includes("Rate limited")) {
+            logger.warn("Rate limited during new user onboarding", {
+              uid,
+              error: error.message,
+            });
+            return res.status(200).send("OK");
+          }
+          throw error;
+        }
+        logger.info("Started onboarding for new user", { uid });
+        return;
       }
 
       // Get user profile for personalized responses
       const profile = await getUserProfile(uid);
 
+      // Simple rate limiting - prevent sending messages too frequently
+      const lastMessageKey = `last_message:${uid}`;
+      const lastMessageTime = store.get(lastMessageKey);
+      const now = Date.now();
+      const minInterval = 60000; // 1 minute minimum between messages
+
+      if (lastMessageTime && now - lastMessageTime < minInterval) {
+        logger.info("Rate limiting message", {
+          uid,
+          timeSinceLast: now - lastMessageTime,
+        });
+        return res.status(200).send("OK");
+      }
+
+      // Update last message time
+      store.set(lastMessageKey, now);
+
       // Command handling
       if (lower === "hi" || lower === "hello") {
         const greeting = profile ? `Hello ${profile.name}! 👋` : "Hello! 👋";
-        await whatsappClient.sendText(uid, greeting);
+        await sendMessageSafely(whatsappClient, uid, greeting);
         logger.info("Greeting sent", { to: uid });
       }
       // Connect command
       else if (lower === "connect") {
         const isLinked = await hasGoogleCalendarLinked(uid);
         if (isLinked) {
-          await whatsappClient.sendText(
+          await sendMessageSafely(
+            whatsappClient,
             uid,
             "✅ Your Google Calendar is already connected!"
           );
         } else {
           const authUrl = getAuthUrl(uid);
-          await whatsappClient.sendText(
+          await sendMessageSafely(
+            whatsappClient,
             uid,
             `🔗 Connect your Google Calendar:\n\n${authUrl}\n\nClick the link above to authorize access to your calendar.`
           );
@@ -190,7 +253,8 @@ router.post("/", async (req, res) => {
       else if (lower === "agenda") {
         const isLinked = await hasGoogleCalendarLinked(uid);
         if (!isLinked) {
-          await whatsappClient.sendText(
+          await sendMessageSafely(
+            whatsappClient,
             uid,
             "📅 You're not connected to Google Calendar yet.\n\nType 'connect' to link your calendar and see your agenda."
           );
@@ -200,7 +264,8 @@ router.post("/", async (req, res) => {
         try {
           const events = await listEvents(uid, new Date());
           if (!events.length) {
-            await whatsappClient.sendText(
+            await sendMessageSafely(
+              whatsappClient,
               uid,
               "📅 No events scheduled for today 👍"
             );
@@ -209,7 +274,8 @@ router.post("/", async (req, res) => {
               const hhmm = (e.start || "").substring(11, 16) || "All-day";
               return `• ${hhmm} — ${e.summary}`;
             });
-            await whatsappClient.sendText(
+            await sendMessageSafely(
+              whatsappClient,
               uid,
               `📅 Today's agenda:\n\n${lines.join("\n")}`
             );
@@ -217,7 +283,8 @@ router.post("/", async (req, res) => {
           logger.info("Agenda sent", { to: uid, eventCount: events.length });
         } catch (error) {
           logger.error("Failed to fetch agenda", error, { to: uid });
-          await whatsappClient.sendText(
+          await sendMessageSafely(
+            whatsappClient,
             uid,
             "❌ Sorry, couldn't fetch your calendar. Please try 'connect' again if needed."
           );
@@ -234,7 +301,7 @@ router.post("/", async (req, res) => {
 • help - Show this help message
 
 Need help? Just ask!`;
-        await whatsappClient.sendText(uid, helpText);
+        await sendMessageSafely(whatsappClient, uid, helpText);
       }
       // Whoami command
       else if (lower === "whoami") {
@@ -246,9 +313,10 @@ Name: ${profile.name}
 Email: ${profile.email}
 Phone: ${profile.phone || "Not provided"}
 Calendar: ${status}`;
-          await whatsappClient.sendText(uid, whoamiText);
+          await sendMessageSafely(whatsappClient, uid, whoamiText);
         } else {
-          await whatsappClient.sendText(
+          await sendMessageSafely(
+            whatsappClient,
             uid,
             "❌ Profile not found. Please complete onboarding."
           );
@@ -259,12 +327,17 @@ Calendar: ${status}`;
         const tz = msg.slice(7).trim();
         await setSettings(uid, { tz });
         const s = await getSettings(uid);
-        await whatsappClient.sendText(uid, `⏰ Timezone updated → ${s.tz}`);
+        await sendMessageSafely(
+          whatsappClient,
+          uid,
+          `⏰ Timezone updated → ${s.tz}`
+        );
         logger.info("Timezone updated", { to: uid, tz: s.tz });
       }
       // Default response
       else {
-        await whatsappClient.sendText(
+        await sendMessageSafely(
+          whatsappClient,
           uid,
           "🤔 I didn't understand that. Type 'help' to see available commands."
         );
