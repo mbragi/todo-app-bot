@@ -89,15 +89,16 @@ function verifyWebhookSignature(signature, body, secret) {
     const match1 = receivedSignature === expectedSignature1;
     const match2 = receivedSignature === expectedSignature2;
 
-    logger.info("Signature verification", {
-      receivedSignature: receivedSignature.substring(0, 10) + "...",
-      expectedSignature1: expectedSignature1.substring(0, 10) + "...",
-      expectedSignature2: expectedSignature2.substring(0, 10) + "...",
-      match1,
-      match2,
-      bodyLength: bodyString.length,
-      bodyPreview: bodyString.substring(0, 100) + "...",
-    });
+    if (!match1 && !match2) {
+      logger.warn("Signature mismatch", {
+        received: receivedSignature.substring(0, 8) + "...",
+        expected: expectedSignature1.substring(0, 8) + "...",
+      });
+    } else {
+      logger.info("Signature verified", {
+        method: match1 ? "with-spaces" : "no-spaces",
+      });
+    }
 
     return match1 || match2;
   } catch (error) {
@@ -141,13 +142,8 @@ router.post("/", async (req, res) => {
     }
 
     logger.info("Webhook received", {
-      object: body.object,
-      event: body.event,
-      entryCount: body.entry?.length || 0,
-      bodyKeys: Object.keys(body),
-      hasMessages: !!body.messages,
-      hasEntry: !!body.entry,
-      hasData: !!body.data,
+      event: body.event || "unknown",
+      type: body.object || "direct",
       signatureVerified: !!secret,
     });
 
@@ -182,10 +178,7 @@ router.post("/", async (req, res) => {
     }
     // Format 4: WaSender event webhooks
     else if (body.event && body.event.startsWith("message.")) {
-      logger.info("Received WaSender message event", {
-        event: body.event,
-        data: body.data,
-      });
+      logger.info("Message event", { event: body.event });
 
       // Only process received messages
       if (
@@ -198,13 +191,13 @@ router.post("/", async (req, res) => {
         text = message.text || message.body || message.message || "";
       } else {
         // Acknowledge other message events but don't process them
-        logger.info("Acknowledging message event", { event: body.event });
+        logger.info("Event acknowledged", { event: body.event });
         return res.status(200).send("OK");
       }
     }
     // Format 5: WaSender test webhook
     else if (body.event === "webhook.test") {
-      logger.info("Received WaSender test webhook", { body });
+      logger.info("Test webhook received");
       // Don't process test webhooks as messages, just acknowledge
       return res.status(200).send("OK");
     }
@@ -355,11 +348,7 @@ Calendar: ${status}`;
         );
       }
     } else {
-      logger.info("No valid message found in webhook payload", {
-        hasMessage: !!message,
-        hasFrom: !!from,
-        hasText: !!text,
-      });
+      logger.info("No message to process");
     }
 
     // Always respond with OK to webhook
