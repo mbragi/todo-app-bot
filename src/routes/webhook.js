@@ -187,7 +187,7 @@ router.post("/", async (req, res) => {
 
       // Handle new user onboarding (only if not already in onboarding)
       if (isNewUser) {
-        const onboardingResponse = startOnboarding(uid);
+        const onboardingResponse = await startOnboarding(uid);
         try {
           await whatsappClient.sendText(uid, onboardingResponse.message);
         } catch (error) {
@@ -209,7 +209,7 @@ router.post("/", async (req, res) => {
 
       // Simple rate limiting - prevent sending messages too frequently
       const lastMessageKey = `last_message:${uid}`;
-      const lastMessageTime = store.get(lastMessageKey);
+      const lastMessageTime = await store.get(lastMessageKey);
       const now = Date.now();
       const minInterval = 60000; // 1 minute minimum between messages
 
@@ -222,7 +222,7 @@ router.post("/", async (req, res) => {
       }
 
       // Update last message time
-      store.set(lastMessageKey, now);
+      await store.set(lastMessageKey, now);
 
       // Command handling
       if (lower === "hi" || lower === "hello") {

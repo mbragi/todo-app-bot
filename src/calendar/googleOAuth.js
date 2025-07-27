@@ -60,15 +60,15 @@ async function exchangeCodeForTokens(code, uid) {
 
     // Store tokens in memory
     const gcalKey = `user:${uid}:gcal`;
-    store.hset(gcalKey, "refresh_token", tokens.refresh_token);
-    store.hset(gcalKey, "access_token", tokens.access_token);
+    await store.hset(gcalKey, "refresh_token", tokens.refresh_token);
+    await store.hset(gcalKey, "access_token", tokens.access_token);
 
     // Set calendar ID to user's email if available
     const { getUserProfile } = require("../users/service");
     const profile = await getUserProfile(uid);
     if (profile && profile.email) {
       const settingsKey = `user:${uid}:settings`;
-      store.hset(settingsKey, "calendarId", profile.email);
+      await store.hset(settingsKey, "calendarId", profile.email);
     }
 
     logger.info("OAuth tokens stored successfully", {
@@ -91,7 +91,7 @@ async function exchangeCodeForTokens(code, uid) {
  */
 async function getUserOAuth2Client(uid) {
   const gcalKey = `user:${uid}:gcal`;
-  const refreshToken = store.hget(gcalKey, "refresh_token");
+  const refreshToken = await store.hget(gcalKey, "refresh_token");
 
   if (!refreshToken) {
     throw new Error("User not connected to Google Calendar");
@@ -117,7 +117,7 @@ async function refreshAccessToken(uid) {
 
     // Update stored access token
     const gcalKey = `user:${uid}:gcal`;
-    store.hset(gcalKey, "access_token", credentials.access_token);
+    await store.hset(gcalKey, "access_token", credentials.access_token);
 
     return credentials.access_token;
   } catch (error) {

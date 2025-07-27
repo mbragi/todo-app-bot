@@ -25,8 +25,8 @@ async function startServer() {
 
       server.close(async () => {
         logger.info("HTTP server closed");
-        logger.info("Graceful shutdown completed");
-        process.exit(0);
+          logger.info("Graceful shutdown completed");
+          process.exit(0);
       });
     };
 

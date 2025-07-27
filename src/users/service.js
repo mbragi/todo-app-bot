@@ -8,14 +8,14 @@ const USERS_SET = "users:set";
  * @returns {boolean} - true if user was newly added, false if already existed
  */
 async function addUserIfNew(uid) {
-  if (!store.sismember(USERS_SET, uid)) {
-    store.sadd(USERS_SET, uid);
+  if (!(await store.sismember(USERS_SET, uid))) {
+    await store.sadd(USERS_SET, uid);
     // Set default settings
     const settingsKey = `user:${uid}:settings`;
-    if (!store.hget(settingsKey, "tz"))
-      store.hset(settingsKey, "tz", process.env.TZ || "Africa/Lagos");
-    if (!store.hget(settingsKey, "calendarId"))
-      store.hset(settingsKey, "calendarId", "primary");
+    if (!(await store.hget(settingsKey, "tz")))
+      await store.hset(settingsKey, "tz", process.env.TZ || "Africa/Lagos");
+    if (!(await store.hget(settingsKey, "calendarId")))
+      await store.hset(settingsKey, "calendarId", "primary");
     return true; // New user
   }
   return false; // Existing user
@@ -23,7 +23,7 @@ async function addUserIfNew(uid) {
 
 async function getSettings(uid) {
   const key = `user:${uid}:settings`;
-  const all = store.hgetall(key);
+  const all = await store.hgetall(key);
   return {
     tz: all.tz || process.env.TZ || "Africa/Lagos",
     calendarId: all.calendarId || process.env.GOOGLE_CALENDAR_ID || "primary",
@@ -32,8 +32,9 @@ async function getSettings(uid) {
 
 async function setSettings(uid, partial) {
   const key = `user:${uid}:settings`;
-  if (partial.tz) store.hset(key, "tz", partial.tz);
-  if (partial.calendarId) store.hset(key, "calendarId", partial.calendarId);
+  if (partial.tz) await store.hset(key, "tz", partial.tz);
+  if (partial.calendarId)
+    await store.hset(key, "calendarId", partial.calendarId);
   return getSettings(uid);
 }
 
@@ -44,7 +45,7 @@ async function setSettings(uid, partial) {
  */
 async function getUserProfile(uid) {
   const profileKey = `user:${uid}:profile`;
-  const profile = store.hgetall(profileKey);
+  const profile = await store.hgetall(profileKey);
   return Object.keys(profile).length > 0 ? profile : null;
 }
 
@@ -55,9 +56,9 @@ async function getUserProfile(uid) {
  */
 async function saveUserProfile(uid, profile) {
   const profileKey = `user:${uid}:profile`;
-  if (profile.name) store.hset(profileKey, "name", profile.name);
-  if (profile.email) store.hset(profileKey, "email", profile.email);
-  if (profile.phone) store.hset(profileKey, "phone", profile.phone);
+  if (profile.name) await store.hset(profileKey, "name", profile.name);
+  if (profile.email) await store.hset(profileKey, "email", profile.email);
+  if (profile.phone) await store.hset(profileKey, "phone", profile.phone);
 }
 
 /**
@@ -77,7 +78,7 @@ async function hasCompletedOnboarding(uid) {
  */
 async function hasGoogleCalendarLinked(uid) {
   const gcalKey = `user:${uid}:gcal`;
-  const refreshToken = store.hget(gcalKey, "refresh_token");
+  const refreshToken = await store.hget(gcalKey, "refresh_token");
   return !!refreshToken;
 }
 

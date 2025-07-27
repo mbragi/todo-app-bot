@@ -15,7 +15,10 @@
     "node-cron": "^3.0.3",
     "date-fns": "^2.30.0",
     "luxon": "^3.4.4",
-    "googleapis": "^128.0.0"
+    "googleapis": "^128.0.0",
+    "cache-manager": "^4.1.0",
+    "cache-manager-redis-store": "^2.0.0",
+    "cache-manager-memcached-store": "^2.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

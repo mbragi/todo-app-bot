@@ -47,6 +47,27 @@ const config = {
     backend: process.env.STORE_BACKEND || "memory",
   },
 
+  // Cache configuration
+  cache: {
+    backend: process.env.CACHE_BACKEND || "memory", // memory, redis, memcache
+    ttl: parseInt(process.env.CACHE_TTL) || 3600, // 1 hour default
+
+    // Redis configuration
+    redis: {
+      host: process.env.REDIS_HOST || "localhost",
+      port: parseInt(process.env.REDIS_PORT) || 6379,
+      password: process.env.REDIS_PASSWORD,
+      db: parseInt(process.env.REDIS_DB) || 0,
+    },
+
+    // Memcache configuration
+    memcache: {
+      hosts: process.env.MEMCACHE_HOSTS
+        ? process.env.MEMCACHE_HOSTS.split(",")
+        : ["localhost:11211"],
+    },
+  },
+
   // Cron Schedules
   cron: {
     agenda: process.env.CRON_AGENDA || "0 7 * * *",
