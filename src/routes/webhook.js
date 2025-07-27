@@ -136,6 +136,8 @@ router.post("/", async (req, res) => {
       event: body.event || "unknown",
       type: body.object || "direct",
       signatureVerified: !!secret,
+      hasData: !!body.data,
+      dataKeys: body.data ? Object.keys(body.data) : [],
     });
 
     // Check if this is a WhatsApp message (support multiple formats)
@@ -168,19 +170,34 @@ router.post("/", async (req, res) => {
       text = message.text || message.body || "";
     }
     // Format 4: WaSender event webhooks
-    else if (body.event && body.event.startsWith("message.")) {
+    else if (
+      body.event &&
+      (body.event.startsWith("message.") || body.event.startsWith("messages."))
+    ) {
       logger.info("Message event", { event: body.event });
 
       // Process received messages and upserts (new messages)
       if (
         (body.event === "message.received" ||
-          body.event === "messages.upsert") &&
+          body.event === "messages.upsert" ||
+          body.event === "messages.received") &&
         body.data &&
-        body.data.messages
+        body.data.key &&
+        body.data.message
       ) {
-        message = body.data.messages[0];
-        from = message.from || message.sender || message.phone;
-        text = message.text || message.body || message.message || "";
+        // Extract from WaSender format
+        from = body.data.key.remoteJid;
+        text =
+          body.data.message.conversation ||
+          body.data.message.text ||
+          body.data.message.body ||
+          "";
+
+        logger.info("Message extracted", {
+          from,
+          text: text.substring(0, 50) + (text.length > 50 ? "..." : ""),
+          event: body.event,
+        });
       } else {
         // Acknowledge other message events but don't process them
         logger.info("Event acknowledged", { event: body.event });
