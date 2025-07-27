@@ -78,39 +78,41 @@ router.post("/", async (req, res) => {
           body.event === "messages.upsert" ||
           body.event === "messages.received") &&
         body.data &&
-        body.data.messages &&
-        body.data.messages.key &&
-        body.data.messages.message
+        body.data.messages
       ) {
-        // Extract from WaSender messages object format
-        const messageData = body.data.messages;
-        from = messageData.key.remoteJid;
+        if (body.data.messages.key && body.data.messages.message) {
+          // Extract from WaSender messages object format
+          const messageData = body.data.messages;
+          from = messageData.key.remoteJid;
 
-        // Extract text from different message types
-        let text = "";
-        if (messageData.message.conversation) {
-          text = messageData.message.conversation;
-        } else if (
-          messageData.message.extendedTextMessage &&
-          messageData.message.extendedTextMessage.text
-        ) {
-          text = messageData.message.extendedTextMessage.text;
-        } else if (messageData.message.text) {
-          text = messageData.message.text;
-        }
+          // Extract text from different message types
+          if (messageData.message.conversation) {
+            text = messageData.message.conversation;
+          } else if (
+            messageData.message.extendedTextMessage &&
+            messageData.message.extendedTextMessage.text
+          ) {
+            text = messageData.message.extendedTextMessage.text;
+          } else if (messageData.message.text) {
+            text = messageData.message.text;
+          }
 
-        // Only process messages that match our commands
-        const trimmedText = text.trim().toLowerCase();
-        const isCommand =
-          trimmedText === "connect" ||
-          trimmedText === "agenda" ||
-          trimmedText === "help" ||
-          trimmedText === "whoami" ||
-          trimmedText.startsWith("set tz ") ||
-          trimmedText === "hi" ||
-          trimmedText === "hello";
+          // Only process messages that match our commands
+          const trimmedText = text.trim().toLowerCase();
+          const isCommand =
+            trimmedText === "connect" ||
+            trimmedText === "agenda" ||
+            trimmedText === "help" ||
+            trimmedText === "whoami" ||
+            trimmedText.startsWith("set tz ") ||
+            trimmedText === "hi" ||
+            trimmedText === "hello";
 
-        if (!isCommand) {
+          if (!isCommand) {
+            return res.status(200).send("OK");
+          }
+        } else {
+          // Acknowledge other message events but don't process them
           return res.status(200).send("OK");
         }
       } else {
