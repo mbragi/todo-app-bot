@@ -56,7 +56,7 @@ router.get("/", (req, res) => {
  * @param {string} secret - Webhook secret
  * @returns {boolean} - true if signature is valid
  */
-function verifyWebhookSignature(signature, body, secret) {
+function verifyWebhookSignature(signature, rawBody, secret) {
   if (!signature || !secret) {
     logger.warn("Missing signature or secret", {
       hasSignature: !!signature,
@@ -66,18 +66,10 @@ function verifyWebhookSignature(signature, body, secret) {
   }
 
   try {
-    // Try different body formats for signature calculation
-    const bodyString = JSON.stringify(body);
-    const bodyStringNoSpaces = JSON.stringify(body, null, 0);
-
-    const expectedSignature1 = crypto
+    // Calculate signature from raw body
+    const expectedSignature = crypto
       .createHmac("sha256", secret)
-      .update(bodyString)
-      .digest("hex");
-
-    const expectedSignature2 = crypto
-      .createHmac("sha256", secret)
-      .update(bodyStringNoSpaces)
+      .update(rawBody)
       .digest("hex");
 
     // Handle different signature formats
@@ -86,21 +78,18 @@ function verifyWebhookSignature(signature, body, secret) {
       receivedSignature = signature.replace("sha256=", "");
     }
 
-    const match1 = receivedSignature === expectedSignature1;
-    const match2 = receivedSignature === expectedSignature2;
+    const match = receivedSignature === expectedSignature;
 
-    if (!match1 && !match2) {
+    if (!match) {
       logger.warn("Signature mismatch", {
         received: receivedSignature.substring(0, 8) + "...",
-        expected: expectedSignature1.substring(0, 8) + "...",
+        expected: expectedSignature.substring(0, 8) + "...",
       });
     } else {
-      logger.info("Signature verified", {
-        method: match1 ? "with-spaces" : "no-spaces",
-      });
+      logger.info("Signature verified");
     }
 
-    return match1 || match2;
+    return match;
   } catch (error) {
     logger.error("Error verifying webhook signature", error);
     return false;
@@ -113,9 +102,11 @@ function verifyWebhookSignature(signature, body, secret) {
  */
 router.post("/", async (req, res) => {
   try {
+    // Get raw body for signature verification
+    const rawBody = JSON.stringify(req.body);
     const body = req.body;
 
-    // Verify webhook signature
+    // Verify webhook signature using raw body
     const signature =
       req.headers["x-hub-signature-256"] ||
       req.headers["x-wasender-signature"] ||
@@ -125,7 +116,7 @@ router.post("/", async (req, res) => {
         ? config.whatsapp.webhookSecret
         : config.wasender.webhookSecret;
 
-    if (secret && !verifyWebhookSignature(signature, body, secret)) {
+    if (secret && !verifyWebhookSignature(signature, rawBody, secret)) {
       logger.warn("Invalid webhook signature", {
         hasSignature: !!signature,
         hasSecret: !!secret,
@@ -180,9 +171,10 @@ router.post("/", async (req, res) => {
     else if (body.event && body.event.startsWith("message.")) {
       logger.info("Message event", { event: body.event });
 
-      // Only process received messages
+      // Process received messages and upserts (new messages)
       if (
-        body.event === "message.received" &&
+        (body.event === "message.received" ||
+          body.event === "messages.upsert") &&
         body.data &&
         body.data.messages
       ) {
