@@ -54,14 +54,6 @@ router.get("/", (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    // Debug: Log entire request
-    console.log("=== WEBHOOK DEBUG ===");
-    console.log("Headers:", JSON.stringify(req.headers, null, 2));
-    console.log("Body:", JSON.stringify(req.body, null, 2));
-    console.log("Raw URL:", req.url);
-    console.log("Method:", req.method);
-    console.log("=====================");
-
     const body = req.body;
 
     logger.info("Webhook received", {
@@ -80,26 +72,7 @@ router.post("/", async (req, res) => {
       body.event &&
       (body.event.startsWith("message.") || body.event.startsWith("messages."))
     ) {
-      logger.info("Message event", { event: body.event });
-
       // Process received messages and upserts (new messages)
-      console.log("=== MESSAGE PROCESSING DEBUG ===");
-      console.log("Event:", body.event);
-      console.log("Has data:", !!body.data);
-      console.log("Data keys:", body.data ? Object.keys(body.data) : []);
-      console.log("Has messages:", !!(body.data && body.data.messages));
-      console.log(
-        "Messages type:",
-        body.data && body.data.messages ? typeof body.data.messages : "N/A"
-      );
-      console.log(
-        "Messages content:",
-        body.data && body.data.messages
-          ? JSON.stringify(body.data.messages, null, 2)
-          : "N/A"
-      );
-      console.log("================================");
-
       if (
         (body.event === "message.received" ||
           body.event === "messages.upsert" ||
@@ -115,37 +88,16 @@ router.post("/", async (req, res) => {
 
         // Extract text from different message types
         let text = "";
-        console.log("=== TEXT EXTRACTION DEBUG ===");
-        console.log("Message keys:", Object.keys(messageData.message));
-        console.log(
-          "Message content:",
-          JSON.stringify(messageData.message, null, 2)
-        );
-
         if (messageData.message.conversation) {
           text = messageData.message.conversation;
-          console.log("Extracted from conversation:", text);
         } else if (
           messageData.message.extendedTextMessage &&
           messageData.message.extendedTextMessage.text
         ) {
           text = messageData.message.extendedTextMessage.text;
-          console.log("Extracted from extendedTextMessage:", text);
         } else if (messageData.message.text) {
           text = messageData.message.text;
-          console.log("Extracted from text:", text);
-        } else {
-          console.log("No text found in message");
         }
-        console.log("Final text:", text);
-        console.log("==============================");
-
-        logger.info("Message extracted", {
-          from,
-          text: text.substring(0, 50) + (text.length > 50 ? "..." : ""),
-          event: body.event,
-          messageType: Object.keys(messageData.message)[0],
-        });
 
         // Only process messages that match our commands
         const trimmedText = text.trim().toLowerCase();
@@ -159,30 +111,19 @@ router.post("/", async (req, res) => {
           trimmedText === "hello";
 
         if (!isCommand) {
-          logger.info("Ignoring non-command message", { text: trimmedText });
           return res.status(200).send("OK");
         }
       } else {
         // Acknowledge other message events but don't process them
-        logger.info("Event acknowledged", { event: body.event });
         return res.status(200).send("OK");
       }
     }
     // Handle WaSender test webhook
     else if (body.event === "webhook.test") {
-      logger.info("Test webhook received");
-      // Don't process test webhooks as messages, just acknowledge
       return res.status(200).send("OK");
     }
 
     // Process message if we found one
-    console.log("=== PROCESSING DEBUG ===");
-    console.log("From:", from);
-    console.log("Text:", text);
-    console.log("Has from:", !!from);
-    console.log("Has text:", !!text);
-    console.log("=========================");
-
     if (from && text) {
       logger.info("Message received", {
         from,
