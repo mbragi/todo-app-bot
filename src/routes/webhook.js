@@ -108,8 +108,6 @@ router.post("/", async (req, res) => {
 
     // Verify webhook signature using raw body
     const signature =
-      req.headers["x-hub-signature-256"] ||
-      req.headers["x-wasender-signature"] ||
       req.headers["X-Webhook-Signature"];
     const secret =
       config.messagingProvider === "cloud"
