@@ -182,7 +182,6 @@ router.post("/", async (req, res) => {
     const hasOnboarded = await hasCompletedOnboarding(uid);
 
     // Check if user is currently in onboarding
-    const { isInOnboarding } = require("./users/onboarding");
     const currentlyInOnboarding = await isInOnboarding(uid);
 
     // If user hasn't started onboarding and isn't sending a command, ignore the message
