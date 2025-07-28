@@ -14,14 +14,12 @@ const simpleLogger = {
  * Fails fast if required environment variables are missing
  */
 const config = {
-  // Messaging Provider
-  messagingProvider: process.env.MESSAGING_PROVIDER || "wasender",
+  // Messaging Provider (WaSender only)
+  messagingProvider: "wasender",
   timezone: process.env.TZ || "Africa/Lagos",
 
-  // WhatsApp Cloud API
+  // WhatsApp Cloud API (for webhook verification only)
   whatsapp: {
-    token: process.env.WHATSAPP_TOKEN,
-    phoneNumberId: process.env.PHONE_NUMBER_ID,
     verifyToken: process.env.VERIFY_TOKEN,
     webhookSecret: process.env.WHATSAPP_WEBHOOK_SECRET,
   },
@@ -93,23 +91,9 @@ const config = {
 function validateConfig() {
   const errors = [];
 
-  // Validate messaging provider
-  if (!["wasender", "cloud"].includes(config.messagingProvider)) {
-    errors.push('MESSAGING_PROVIDER must be either "wasender" or "cloud"');
-  }
-
-  // Validate provider-specific requirements
-  if (config.messagingProvider === "cloud") {
-    if (!config.whatsapp.token)
-      errors.push("WHATSAPP_TOKEN is required for cloud provider");
-    if (!config.whatsapp.phoneNumberId)
-      errors.push("PHONE_NUMBER_ID is required for cloud provider");
-    if (!config.whatsapp.verifyToken)
-      errors.push("VERIFY_TOKEN is required for cloud provider");
-  } else if (config.messagingProvider === "wasender") {
-    if (!config.wasender.apiKey)
-      errors.push("WASENDER_API_KEY is required for wasender provider");
-  }
+  // Validate WaSender requirements
+  if (!config.wasender.apiKey)
+    errors.push("WASENDER_API_KEY is required for wasender provider");
 
   // Validate Google OAuth requirements (only if using OAuth)
   if (

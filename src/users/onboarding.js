@@ -159,5 +159,6 @@ module.exports = {
   tryHandle,
   startOnboarding,
   isInOnboarding,
+  getOnboardingState,
   STATES,
 };
