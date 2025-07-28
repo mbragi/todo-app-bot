@@ -230,8 +230,19 @@ router.post("/", async (req, res) => {
       }
     }
 
+    // If user is in onboarding, don't process commands (except connect which was handled above)
+    if (currentlyInOnboarding && lower !== "connect") {
+      logger.info("User in onboarding - ignoring command", {
+        from,
+        text: text.substring(0, 20),
+        command: lower,
+      });
+      return res.status(200).send("OK");
+    }
+
     // Only process command messages to avoid spam (after onboarding checks)
-    if (!isCommand(text) && !currentlyInOnboarding) {
+    // Don't filter messages during onboarding
+    if (!isCommand(text) && !currentlyInOnboarding && !hasOnboarded) {
       logger.info("Non-command message ignored", {
         from,
         text: text.substring(0, 20),
@@ -243,22 +254,25 @@ router.post("/", async (req, res) => {
     const profile = await getUserProfile(uid);
 
     // Simple rate limiting - prevent sending messages too frequently
-    const lastMessageKey = `last_message:${uid}`;
-    const lastMessageTime = await store.get(lastMessageKey);
-    const now = Date.now();
-    const minInterval = 65000; // 65 seconds minimum between messages (WaSender allows 1 per minute)
+    // Skip rate limiting during onboarding to allow smooth flow
+    if (!currentlyInOnboarding) {
+      const lastMessageKey = `last_message:${uid}`;
+      const lastMessageTime = await store.get(lastMessageKey);
+      const now = Date.now();
+      const minInterval = 65000; // 65 seconds minimum between messages (WaSender allows 1 per minute)
 
-    if (lastMessageTime && now - lastMessageTime < minInterval) {
-      logger.info("Rate limiting message", {
-        uid,
-        timeSinceLast: now - lastMessageTime,
-        remaining: minInterval - (now - lastMessageTime),
-      });
-      return res.status(200).send("OK");
+      if (lastMessageTime && now - lastMessageTime < minInterval) {
+        logger.info("Rate limiting message", {
+          uid,
+          timeSinceLast: now - lastMessageTime,
+          remaining: minInterval - (now - lastMessageTime),
+        });
+        return res.status(200).send("OK");
+      }
+
+      // Update last message time
+      await store.set(lastMessageKey, now);
     }
-
-    // Update last message time
-    await store.set(lastMessageKey, now);
 
     // Command handling
     if (lower === "hi" || lower === "hello") {
