@@ -68,7 +68,7 @@ async function saveUserProfile(uid, profile) {
  */
 async function hasCompletedOnboarding(uid) {
   const profile = await getUserProfile(uid);
-  return profile && profile.name && profile.email;
+  return profile && profile.name;
 }
 
 /**

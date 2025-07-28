@@ -72,6 +72,23 @@ router.get("/callback", async (req, res) => {
 
     logger.info("OAuth callback completed successfully", { uid });
 
+    // Send WhatsApp message to user about successful connection
+    try {
+      const { createWhatsAppClient } = require("../whatsapp/client");
+      const { getUserProfile } = require("../users/service");
+      
+      const whatsappClient = createWhatsAppClient();
+      const profile = await getUserProfile(uid);
+      const userName = profile?.name || "there";
+      
+      const message = `🎉 Perfect! Your Google Calendar is now connected!\n\nYou're all set up, ${userName}! You can now:\n• Type "agenda" to see your daily schedule\n• Type "help" for all available commands\n\nWelcome to your productivity assistant! 🚀`;
+      
+      await whatsappClient.sendText(uid, message);
+      logger.info("Sent OAuth completion message", { uid, userName });
+    } catch (error) {
+      logger.error("Failed to send OAuth completion message", error, { uid });
+    }
+
     // Return success page
     res.send(`
       <!DOCTYPE html>

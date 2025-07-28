@@ -1,12 +1,11 @@
 const { saveUserProfile, getUserProfile } = require("./service");
 const store = require("../store");
 const logger = require("../lib/logger");
+const { getAuthUrl } = require("../calendar/googleOAuth");
 
 // Onboarding states
 const STATES = {
   ASK_NAME: "ask_name",
-  ASK_EMAIL: "ask_email",
-  ASK_PHONE: "ask_phone",
   DONE: "done",
 };
 
@@ -85,35 +84,14 @@ async function tryHandle(uid, text) {
         };
       }
 
-      await setOnboardingState(uid, STATES.ASK_EMAIL, { name: trimmedText });
-      return {
-        message: `Nice to meet you, ${trimmedText}! What's your email address?`,
-        state: STATES.ASK_EMAIL,
+      // Save the profile with just the name
+      // Email will come from Google Calendar connection
+      // Phone is already available from WhatsApp (uid)
+      const profileData = {
+        name: trimmedText,
+        email: "", // Will be set when user connects Google Calendar
+        phone: uid.replace("@s.whatsapp.net", ""), // Extract phone from WhatsApp UID
       };
-
-    case STATES.ASK_EMAIL:
-      // Basic email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(trimmedText)) {
-        return {
-          message: "Please provide a valid email address.",
-          state: STATES.ASK_EMAIL,
-        };
-      }
-
-      await setOnboardingState(uid, STATES.ASK_PHONE, { email: trimmedText });
-      return {
-        message:
-          "Great! What's your phone number? (You can skip this if you prefer)",
-        state: STATES.ASK_PHONE,
-      };
-
-    case STATES.ASK_PHONE:
-      // Phone is optional, so accept anything or skip
-      const phone = trimmedText.toLowerCase() === "skip" ? "" : trimmedText;
-
-      // Save the complete profile
-      const profileData = { ...current.data, phone };
       await saveUserProfile(uid, profileData);
 
       // Mark onboarding as complete and clear state
@@ -122,7 +100,11 @@ async function tryHandle(uid, text) {
       logger.info("User onboarding completed", { uid, profileData });
 
       return {
-        message: `Perfect! Welcome ${profileData.name}! 🎉\n\nYou can now:\n• Type "connect" to link your Google Calendar\n• Type "agenda" to see your daily schedule\n• Type "help" for more commands`,
+        message: `Perfect! Welcome ${
+          profileData.name
+        }! 🎉\n\nTo get started, please connect your Google Calendar:\n\n🔗 Click here to connect: ${getAuthUrl(
+          uid
+        )}\n\nOr type "connect" to get the link again.\n\nOnce connected, you can use "agenda" to see your daily schedule!`,
         state: STATES.DONE,
       };
 

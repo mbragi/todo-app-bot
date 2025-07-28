@@ -63,12 +63,38 @@ async function exchangeCodeForTokens(code, uid) {
     await store.hset(gcalKey, "refresh_token", tokens.refresh_token);
     await store.hset(gcalKey, "access_token", tokens.access_token);
 
-    // Set calendar ID to user's email if available
-    const { getUserProfile } = require("../users/service");
-    const profile = await getUserProfile(uid);
-    if (profile && profile.email) {
-      const settingsKey = `user:${uid}:settings`;
-      await store.hset(settingsKey, "calendarId", profile.email);
+    // Get user info from Google and update profile
+    try {
+      const { google } = require("googleapis");
+      const oauth2Client = createOAuth2Client();
+      oauth2Client.setCredentials(tokens);
+
+      const people = google.people({ version: "v1", auth: oauth2Client });
+      const userInfo = await people.people.get({
+        resourceName: "people/me",
+        personFields: "emailAddresses",
+      });
+
+      const email = userInfo.data.emailAddresses?.[0]?.value;
+      if (email) {
+        // Update user profile with email from Google
+        const { saveUserProfile } = require("../users/service");
+        const profile = await getUserProfile(uid);
+        if (profile) {
+          await saveUserProfile(uid, { ...profile, email });
+        }
+
+        // Set calendar ID to user's email
+        const settingsKey = `user:${uid}:settings`;
+        await store.hset(settingsKey, "calendarId", email);
+
+        logger.info("User email updated from Google", { uid, email });
+      }
+    } catch (error) {
+      logger.warn("Failed to get user email from Google", {
+        uid,
+        error: error.message,
+      });
     }
 
     logger.info("OAuth tokens stored successfully", {
@@ -132,4 +158,3 @@ module.exports = {
   getUserOAuth2Client,
   refreshAccessToken,
 };
- 

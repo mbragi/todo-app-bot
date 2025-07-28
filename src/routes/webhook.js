@@ -188,6 +188,24 @@ router.post("/", async (req, res) => {
     // Check if user is currently in onboarding
     const currentlyInOnboarding = await isInOnboarding(uid);
 
+    // If user is in onboarding, handle their response (except connect command)
+    if (currentlyInOnboarding && lower !== "connect") {
+      // User is in onboarding, handle their response
+      const onboardingResponse = await tryHandle(uid, msg);
+      if (onboardingResponse) {
+        await sendMessageSafely(
+          whatsappClient,
+          uid,
+          onboardingResponse.message
+        );
+        logger.info("Onboarding response sent", {
+          uid,
+          state: onboardingResponse.state,
+        });
+        return res.status(200).send("OK");
+      }
+    }
+
     // If user hasn't started onboarding and isn't sending a command, ignore the message
     if (!hasOnboarded && !currentlyInOnboarding && !isCommand(text)) {
       logger.info("Ignoring message from user who hasn't started onboarding", {
@@ -200,43 +218,11 @@ router.post("/", async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // Handle onboarding flow - this takes priority over all commands EXCEPT 'connect'
-    if (!hasOnboarded && lower !== "connect") {
-      // If user is not in onboarding yet, start it
-      if (!currentlyInOnboarding) {
-        const onboardingResponse = await startOnboarding(uid);
-        await sendMessageSafely(
-          whatsappClient,
-          uid,
-          onboardingResponse.message
-        );
-        logger.info("Started onboarding for new user", { uid });
-        return res.status(200).send("OK");
-      } else {
-        // User is in onboarding, handle their response
-        const onboardingResponse = await tryHandle(uid, msg);
-        if (onboardingResponse) {
-          await sendMessageSafely(
-            whatsappClient,
-            uid,
-            onboardingResponse.message
-          );
-          logger.info("Onboarding response sent", {
-            uid,
-            state: onboardingResponse.state,
-          });
-          return res.status(200).send("OK");
-        }
-      }
-    }
-
-    // If user is in onboarding, don't process commands (except connect which was handled above)
-    if (currentlyInOnboarding && lower !== "connect") {
-      logger.info("User in onboarding - ignoring command", {
-        from,
-        text: text.substring(0, 20),
-        command: lower,
-      });
+    // Handle new user onboarding - start onboarding for new users (except connect command)
+    if (!hasOnboarded && !currentlyInOnboarding && lower !== "connect") {
+      const onboardingResponse = await startOnboarding(uid);
+      await sendMessageSafely(whatsappClient, uid, onboardingResponse.message);
+      logger.info("Started onboarding for new user", { uid });
       return res.status(200).send("OK");
     }
 
