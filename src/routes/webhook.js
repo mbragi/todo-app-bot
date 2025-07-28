@@ -13,7 +13,11 @@ const {
   hasGoogleCalendarLinked,
 } = require("../users/service");
 const { listEvents } = require("../calendar/googleCalendar");
-const { tryHandle, startOnboarding } = require("../users/onboarding");
+const {
+  tryHandle,
+  startOnboarding,
+  isInOnboarding,
+} = require("../users/onboarding");
 const { getAuthUrl } = require("../calendar/googleOAuth");
 
 /**
