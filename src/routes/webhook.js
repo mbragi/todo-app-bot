@@ -19,6 +19,12 @@ const {
   isInOnboarding,
 } = require("../users/onboarding");
 const { getAuthUrl } = require("../calendar/googleOAuth");
+const {
+  addGoal,
+  listGoals,
+  markDone,
+  addToHistory,
+} = require("../agenda/goals");
 
 /**
  * Helper function to send WhatsApp messages with rate limiting error handling
@@ -101,7 +107,10 @@ function isCommand(text) {
     trimmedText.startsWith("set tz ") ||
     trimmedText === "hi" ||
     trimmedText === "hello" ||
-    trimmedText === "onboard"
+    trimmedText === "onboard" ||
+    trimmedText.startsWith("add goal:") ||
+    trimmedText === "list goals" ||
+    trimmedText.startsWith("done ")
   );
 }
 
@@ -264,11 +273,13 @@ router.post("/", async (req, res) => {
     if (lower === "hi" || lower === "hello") {
       const greeting = profile ? `Hello ${profile.name}! 👋` : "Hello! 👋";
       await sendMessageSafely(whatsappClient, uid, greeting);
+      await addToHistory(uid, "command", text);
       logger.info("Greeting sent", { to: uid });
     }
     // Connect command - handle even for new users
     else if (lower === "connect") {
       const isLinked = await hasGoogleCalendarLinked(uid);
+      await addToHistory(uid, "command", text);
       if (isLinked) {
         await sendMessageSafely(
           whatsappClient,
@@ -289,11 +300,13 @@ router.post("/", async (req, res) => {
     else if (lower === "onboard") {
       const onboardingResponse = await startOnboarding(uid);
       await sendMessageSafely(whatsappClient, uid, onboardingResponse.message);
+      await addToHistory(uid, "command", text);
       logger.info("Onboarding started via command", { uid });
     }
     // Agenda command
     else if (lower === "agenda") {
       const isLinked = await hasGoogleCalendarLinked(uid);
+      await addToHistory(uid, "command", text);
       if (!isLinked) {
         await sendMessageSafely(
           whatsappClient,
@@ -336,8 +349,16 @@ router.post("/", async (req, res) => {
     else if (lower === "help") {
       const helpText = `🤖 Available commands:
 
+📅 Calendar:
 • connect - Link your Google Calendar
 • agenda - View today's schedule
+
+📝 Goals:
+• add goal: <text> - Add a new goal
+• list goals - Show all your goals
+• done <number> - Mark goal as complete
+
+⚙️ Settings:
 • set tz <timezone> - Set your timezone (e.g., "set tz America/New_York")
 • whoami - Show your profile info
 • onboard - Start onboarding process
@@ -345,9 +366,11 @@ router.post("/", async (req, res) => {
 
 Need help? Just ask!`;
       await sendMessageSafely(whatsappClient, uid, helpText);
+      await addToHistory(uid, "command", text);
     }
     // Whoami command
     else if (lower === "whoami") {
+      await addToHistory(uid, "command", text);
       if (profile) {
         const isLinked = await hasGoogleCalendarLinked(uid);
         const status = isLinked ? "✅ Connected" : "❌ Not connected";
@@ -375,7 +398,112 @@ Calendar: ${status}`;
         uid,
         `⏰ Timezone updated → ${s.tz}`
       );
+      await addToHistory(uid, "command", text);
       logger.info("Timezone updated", { to: uid, tz: s.tz });
+    }
+    // Goal commands
+    else if (lower.startsWith("add goal:")) {
+      const goalText = msg.slice(9).trim(); // Remove "add goal:" prefix
+      if (!goalText) {
+        await sendMessageSafely(
+          whatsappClient,
+          uid,
+          "❌ Please provide a goal text. Example: 'add goal: Exercise for 30 minutes'"
+        );
+      } else {
+        try {
+          const count = await addGoal(uid, goalText);
+          await addToHistory(uid, "goal_add", goalText);
+          await sendMessageSafely(
+            whatsappClient,
+            uid,
+            `✅ Goal added! You now have ${count} goal${count !== 1 ? 's' : ''}.\n\n📝 "${goalText}"`
+          );
+          logger.info("Goal added via WhatsApp", { uid, goalText, totalGoals: count });
+        } catch (error) {
+          logger.error("Failed to add goal via WhatsApp", error, { uid, goalText });
+          await sendMessageSafely(
+            whatsappClient,
+            uid,
+            "❌ Sorry, couldn't add your goal. Please try again later."
+          );
+        }
+      }
+    }
+    else if (lower === "list goals") {
+      try {
+        const goals = await listGoals(uid);
+        await addToHistory(uid, "goal_list", "list goals");
+        
+        if (goals.length === 0) {
+          await sendMessageSafely(
+            whatsappClient,
+            uid,
+            "📝 No goals yet! Add one with: 'add goal: Your goal here'"
+          );
+        } else {
+          const goalsList = goals.map(goal => {
+            const status = goal.completed ? "✅" : "⭕";
+            return `${goal.index}. ${status} ${goal.text}`;
+          }).join("\n");
+          
+          const activeCount = goals.filter(g => !g.completed).length;
+          const completedCount = goals.length - activeCount;
+          
+          await sendMessageSafely(
+            whatsappClient,
+            uid,
+            `📝 Your Goals (${activeCount} active, ${completedCount} completed):\n\n${goalsList}\n\nUse 'done <number>' to mark a goal as complete.`
+          );
+        }
+        logger.info("Goals listed via WhatsApp", { uid, totalGoals: goals.length });
+      } catch (error) {
+        logger.error("Failed to list goals via WhatsApp", error, { uid });
+        await sendMessageSafely(
+          whatsappClient,
+          uid,
+          "❌ Sorry, couldn't fetch your goals. Please try again later."
+        );
+      }
+    }
+    else if (lower.startsWith("done ")) {
+      const indexStr = msg.slice(5).trim(); // Remove "done " prefix
+      const index = parseInt(indexStr, 10);
+      
+      if (isNaN(index)) {
+        await sendMessageSafely(
+          whatsappClient,
+          uid,
+          "❌ Please provide a valid goal number. Example: 'done 1'"
+        );
+      } else {
+        try {
+          const success = await markDone(uid, index);
+          await addToHistory(uid, "goal_complete", `done ${index}`);
+          
+          if (success) {
+            await sendMessageSafely(
+              whatsappClient,
+              uid,
+              `🎉 Congratulations! Goal #${index} marked as complete!`
+            );
+            logger.info("Goal marked done via WhatsApp", { uid, index });
+          } else {
+            await sendMessageSafely(
+              whatsappClient,
+              uid,
+              `❌ Goal #${index} not found or already completed. Use 'list goals' to see your current goals.`
+            );
+          }
+        } catch (error) {
+          logger.error("Failed to mark goal as done via WhatsApp", error, { uid, index });
+          await sendMessageSafely(
+            whatsappClient,
+            uid,
+            "❌ Sorry, couldn't update your goal. Please try again later."
+          );
+        }
+      }
     }
     // Default response
     else {

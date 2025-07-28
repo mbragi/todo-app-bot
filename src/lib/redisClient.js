@@ -1,60 +1,83 @@
-const redis = require("redis");
-const config = require("./config");
-const logger = require("./logger");
+// Direct Redis client for LIST operations and advanced commands
+const Redis = require('ioredis');
+const config = require('./config');
+const logger = require('./logger');
 
-let client = null;
+let redisClient = null;
 
 /**
- * Get Redis client singleton
- * Creates connection if not exists
- * @returns {Promise<redis.RedisClient>}
+ * Create Redis client with Railway configuration
  */
-async function getRedisClient() {
-  if (client && client.isReady) {
-    return client;
+function createRedisClient() {
+  if (redisClient) {
+    return redisClient;
   }
 
   try {
-    client = redis.createClient({
-      url: config.redis.url,
+    const redisConfig = config.cache.redis;
+    
+    // Use Redis URL if available (Railway format)
+    if (redisConfig.url) {
+      redisClient = new Redis(redisConfig.url, {
+        retryDelayOnFailover: 100,
+        enableReadyCheck: false,
+        maxRetriesPerRequest: null,
+      });
+    } else {
+      // Use individual connection parameters
+      redisClient = new Redis({
+        host: redisConfig.host,
+        port: redisConfig.port,
+        password: redisConfig.password,
+        db: redisConfig.db,
+        retryDelayOnFailover: 100,
+        enableReadyCheck: false,
+        maxRetriesPerRequest: null,
+      });
+    }
+
+    redisClient.on('connect', () => {
+      logger.info('Redis client connected successfully');
     });
 
-    client.on("error", (err) => {
-      logger.error("Redis client error", err, { provider: "redis" });
+    redisClient.on('error', (error) => {
+      logger.error('Redis client error', error);
     });
 
-    client.on("connect", () => {
-      logger.info("Redis client connected", { provider: "redis" });
+    redisClient.on('close', () => {
+      logger.warn('Redis client connection closed');
     });
 
-    client.on("ready", () => {
-      logger.info("Redis client ready", { provider: "redis" });
-    });
-
-    client.on("end", () => {
-      logger.info("Redis client disconnected", { provider: "redis" });
-    });
-
-    await client.connect();
-    return client;
+    return redisClient;
   } catch (error) {
-    logger.error("Failed to create Redis client", error, { provider: "redis" });
+    logger.error('Failed to create Redis client', error);
     throw error;
   }
 }
 
 /**
+ * Get Redis client instance
+ */
+function getRedisClient() {
+  if (!redisClient) {
+    return createRedisClient();
+  }
+  return redisClient;
+}
+
+/**
  * Close Redis connection
  */
-async function closeRedisClient() {
-  if (client) {
-    await client.quit();
-    client = null;
-    logger.info("Redis client closed", { provider: "redis" });
+function closeRedisClient() {
+  if (redisClient) {
+    redisClient.disconnect();
+    redisClient = null;
+    logger.info('Redis client disconnected');
   }
 }
 
 module.exports = {
+  createRedisClient,
   getRedisClient,
   closeRedisClient,
 };
