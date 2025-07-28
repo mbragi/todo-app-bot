@@ -1,8 +1,8 @@
-// Memory store extension for LIST operations (goals and history)
-const cache = require("../lib/cache");
+// Memory store extension for LIST operations (goals and history) using Redis
+const { getRedisClient } = require("../lib/redisClient");
 const logger = require("../lib/logger");
 
-// Helper to serialize/deserialize data for cache storage
+// Helper to serialize/deserialize data for Redis storage
 function serialize(value) {
   return JSON.stringify(value);
 }
@@ -12,103 +12,107 @@ function deserialize(value) {
   try {
     return JSON.parse(value);
   } catch (error) {
-    logger.error("Failed to deserialize cached value", error, { value });
+    logger.error("Failed to deserialize Redis value", error, { value });
     return null;
   }
 }
 
 module.exports = {
-  // LIST ops for goals and history
+  // LIST ops for goals and history using Redis
   async lpush(key, value) {
     try {
+      const redis = getRedisClient();
       const listKey = `list:${key}`;
-      const existing = await cache.get(listKey);
-      const list = existing ? deserialize(existing) : [];
+      const serializedValue = serialize(value);
       
-      list.unshift(value); // Add to front of list
-      await cache.set(listKey, serialize(list));
-      return list.length;
+      const length = await redis.lpush(listKey, serializedValue);
+      return length;
     } catch (error) {
-      logger.error("Memory lpush error", error, { key, hasValue: !!value });
+      logger.error("Redis lpush error", error, { key, hasValue: !!value });
       return 0;
     }
   },
 
   async rpush(key, value) {
     try {
+      const redis = getRedisClient();
       const listKey = `list:${key}`;
-      const existing = await cache.get(listKey);
-      const list = existing ? deserialize(existing) : [];
+      const serializedValue = serialize(value);
       
-      list.push(value); // Add to end of list
-      await cache.set(listKey, serialize(list));
-      return list.length;
+      const length = await redis.rpush(listKey, serializedValue);
+      return length;
     } catch (error) {
-      logger.error("Memory rpush error", error, { key, hasValue: !!value });
+      logger.error("Redis rpush error", error, { key, hasValue: !!value });
       return 0;
     }
   },
 
   async lrange(key, start = 0, end = -1) {
     try {
+      const redis = getRedisClient();
       const listKey = `list:${key}`;
-      const existing = await cache.get(listKey);
-      const list = existing ? deserialize(existing) : [];
       
-      if (end === -1) {
-        return list.slice(start);
-      }
-      return list.slice(start, end + 1);
+      const items = await redis.lrange(listKey, start, end);
+      return items.map(item => deserialize(item)).filter(item => item !== null);
     } catch (error) {
-      logger.error("Memory lrange error", error, { key, start, end });
+      logger.error("Redis lrange error", error, { key, start, end });
       return [];
     }
   },
 
   async llen(key) {
     try {
+      const redis = getRedisClient();
       const listKey = `list:${key}`;
-      const existing = await cache.get(listKey);
-      const list = existing ? deserialize(existing) : [];
-      return list.length;
+      
+      const length = await redis.llen(listKey);
+      return length;
     } catch (error) {
-      logger.error("Memory llen error", error, { key });
+      logger.error("Redis llen error", error, { key });
       return 0;
     }
   },
 
   async lrem(key, index) {
     try {
+      const redis = getRedisClient();
       const listKey = `list:${key}`;
-      const existing = await cache.get(listKey);
-      const list = existing ? deserialize(existing) : [];
       
-      if (index >= 0 && index < list.length) {
-        const removed = list.splice(index, 1);
-        await cache.set(listKey, serialize(list));
-        return removed[0];
+      // Get the item at the index first
+      const item = await redis.lindex(listKey, index);
+      if (!item) return null;
+      
+      // For removing by index, we need to use a different approach
+      // Get all items, remove the one at index, and replace the list
+      const allItems = await redis.lrange(listKey, 0, -1);
+      if (index >= 0 && index < allItems.length) {
+        const removed = allItems.splice(index, 1)[0];
+        
+        // Replace the entire list
+        await redis.del(listKey);
+        if (allItems.length > 0) {
+          await redis.rpush(listKey, ...allItems);
+        }
+        
+        return deserialize(removed);
       }
       return null;
     } catch (error) {
-      logger.error("Memory lrem error", error, { key, index });
+      logger.error("Redis lrem error", error, { key, index });
       return null;
     }
   },
 
   async lset(key, index, value) {
     try {
+      const redis = getRedisClient();
       const listKey = `list:${key}`;
-      const existing = await cache.get(listKey);
-      const list = existing ? deserialize(existing) : [];
+      const serializedValue = serialize(value);
       
-      if (index >= 0 && index < list.length) {
-        list[index] = value;
-        await cache.set(listKey, serialize(list));
-        return true;
-      }
-      return false;
+      const result = await redis.lset(listKey, index, serializedValue);
+      return result === 'OK';
     } catch (error) {
-      logger.error("Memory lset error", error, { key, index, hasValue: !!value });
+      logger.error("Redis lset error", error, { key, index, hasValue: !!value });
       return false;
     }
   },
@@ -116,42 +120,38 @@ module.exports = {
   // Capped list operations for history (max 50 items)
   async lpushCapped(key, value, maxSize = 50) {
     try {
+      const redis = getRedisClient();
       const listKey = `list:${key}`;
-      const existing = await cache.get(listKey);
-      const list = existing ? deserialize(existing) : [];
+      const serializedValue = serialize(value);
       
-      list.unshift(value); // Add to front
+      // Use Redis transaction to ensure atomicity
+      const multi = redis.multi();
+      multi.lpush(listKey, serializedValue);
+      multi.ltrim(listKey, 0, maxSize - 1); // Keep only first maxSize items
       
-      // Cap the list size
-      if (list.length > maxSize) {
-        list.splice(maxSize); // Remove items beyond maxSize
-      }
-      
-      await cache.set(listKey, serialize(list));
-      return list.length;
+      const results = await multi.exec();
+      return results[0][1]; // Return length from lpush
     } catch (error) {
-      logger.error("Memory lpushCapped error", error, { key, hasValue: !!value, maxSize });
+      logger.error("Redis lpushCapped error", error, { key, hasValue: !!value, maxSize });
       return 0;
     }
   },
 
   async rpushCapped(key, value, maxSize = 50) {
     try {
+      const redis = getRedisClient();
       const listKey = `list:${key}`;
-      const existing = await cache.get(listKey);
-      const list = existing ? deserialize(existing) : [];
+      const serializedValue = serialize(value);
       
-      list.push(value); // Add to end
+      // Use Redis transaction to ensure atomicity
+      const multi = redis.multi();
+      multi.rpush(listKey, serializedValue);
+      multi.ltrim(listKey, -maxSize, -1); // Keep only last maxSize items
       
-      // Cap the list size
-      if (list.length > maxSize) {
-        list.shift(); // Remove from front to maintain maxSize
-      }
-      
-      await cache.set(listKey, serialize(list));
-      return list.length;
+      const results = await multi.exec();
+      return results[0][1]; // Return length from rpush
     } catch (error) {
-      logger.error("Memory rpushCapped error", error, { key, hasValue: !!value, maxSize });
+      logger.error("Redis rpushCapped error", error, { key, hasValue: !!value, maxSize });
       return 0;
     }
   }

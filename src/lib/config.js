@@ -42,20 +42,21 @@ const config = {
 
   // Storage
   store: {
-    backend: process.env.STORE_BACKEND || "memory",
+    backend: process.env.STORE_BACKEND || "redis",
   },
 
   // Cache configuration
   cache: {
-    backend: process.env.CACHE_BACKEND || "memory", // memory, redis, memcache
+    backend: process.env.CACHE_BACKEND || "redis", // memory, redis, memcache
     ttl: parseInt(process.env.CACHE_TTL) || 3600, // 1 hour default
 
-    // Redis configuration
+    // Redis configuration (Railway Redis)
     redis: {
-      host: process.env.REDIS_HOST || "localhost",
-      port: parseInt(process.env.REDIS_PORT) || 6379,
-      password: process.env.REDIS_PASSWORD,
+      host: process.env.REDISHOST || process.env.REDIS_HOST || "localhost",
+      port: parseInt(process.env.REDISPORT || process.env.REDIS_PORT) || 6379,
+      password: process.env.REDISPASSWORD || process.env.REDIS_PASSWORD,
       db: parseInt(process.env.REDIS_DB) || 0,
+      url: process.env.REDIS_URL, // Full Redis URL for Railway
     },
 
     // Memcache configuration
